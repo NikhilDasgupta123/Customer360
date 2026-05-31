@@ -1,7 +1,7 @@
 """Application configuration for CustomerGraph AI.
 
-Day 2 goal: keep all environment-specific values in one place so future
-Auth, Neo4j, agent, and React integration work does not hardcode settings.
+Day 3 keeps all Auth/JWT and future Neo4j values centralized so the
+upcoming login APIs do not hardcode secrets or environment-specific values.
 """
 
 from __future__ import annotations
@@ -26,6 +26,15 @@ def _get_env(name: str, default: str) -> str:
     return os.getenv(name, default).strip()
 
 
+def _get_env_any(names: list[str], default: str) -> str:
+    """Read the first available environment variable from a list of aliases."""
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
 def _get_bool(name: str, default: bool = False) -> bool:
     """Read boolean-style environment variables."""
     value = os.getenv(name)
@@ -34,15 +43,17 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _get_int(name: str, default: int) -> int:
-    """Read integer environment variables safely."""
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
+def _get_int_any(names: list[str], default: int) -> int:
+    """Read integer environment variables safely using alias names."""
+    for name in names:
+        value = os.getenv(name)
+        if value is None or value.strip() == "":
+            continue
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def _get_list(name: str, default: str = "") -> list[str]:
@@ -66,13 +77,18 @@ class Settings:
     docs_enabled: bool
     backend_cors_origins: list[str]
 
-    # Placeholders for upcoming backend days.
+    # Day 3 auth/JWT design settings.
     auth_secret_key: str
+    jwt_algorithm: str
     access_token_expire_minutes: int
     refresh_token_expire_days: int
+    database_url: str
+
+    # Day 7 Neo4j placeholders.
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
+    neo4j_database: str
 
     @property
     def is_development(self) -> bool:
@@ -90,6 +106,9 @@ class Settings:
             "log_level": self.log_level,
             "docs_enabled": self.docs_enabled,
             "backend_cors_origins": self.backend_cors_origins,
+            "jwt_algorithm": self.jwt_algorithm,
+            "access_token_expire_minutes": self.access_token_expire_minutes,
+            "refresh_token_expire_days": self.refresh_token_expire_days,
         }
 
 
@@ -98,11 +117,11 @@ def get_settings() -> Settings:
     """Create settings once and reuse them across the application."""
     return Settings(
         app_name=_get_env("APP_NAME", "CustomerGraph AI"),
-        app_version=_get_env("APP_VERSION", "0.2.0"),
+        app_version=_get_env("APP_VERSION", "0.3.0"),
         environment=_get_env("ENVIRONMENT", "development"),
         debug=_get_bool("DEBUG", True),
         host=_get_env("HOST", "127.0.0.1"),
-        port=_get_int("PORT", 8000),
+        port=_get_int_any(["PORT"], 8000),
         api_v1_prefix=_get_env("API_V1_PREFIX", "/api/v1"),
         log_level=_get_env("LOG_LEVEL", "INFO").upper(),
         docs_enabled=_get_bool("DOCS_ENABLED", True),
@@ -110,10 +129,23 @@ def get_settings() -> Settings:
             "BACKEND_CORS_ORIGINS",
             "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173",
         ),
-        auth_secret_key=_get_env("AUTH_SECRET_KEY", "change-this-on-day-3"),
-        access_token_expire_minutes=_get_int("ACCESS_TOKEN_EXPIRE_MINUTES", 30),
-        refresh_token_expire_days=_get_int("REFRESH_TOKEN_EXPIRE_DAYS", 7),
+        # Supports both names so your existing .env with JWT_SECRET_KEY works.
+        auth_secret_key=_get_env_any(
+            ["JWT_SECRET_KEY", "AUTH_SECRET_KEY"],
+            "change-this-secret-key",
+        ),
+        jwt_algorithm=_get_env_any(["JWT_ALGORITHM"], "HS256"),
+        access_token_expire_minutes=_get_int_any(
+            ["JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "ACCESS_TOKEN_EXPIRE_MINUTES"],
+            30,
+        ),
+        refresh_token_expire_days=_get_int_any(
+            ["JWT_REFRESH_TOKEN_EXPIRE_DAYS", "REFRESH_TOKEN_EXPIRE_DAYS"],
+            7,
+        ),
+        database_url=_get_env("DATABASE_URL", "sqlite:///./customergraph.db"),
         neo4j_uri=_get_env("NEO4J_URI", "bolt://localhost:7687"),
-        neo4j_user=_get_env("NEO4J_USER", "neo4j"),
+        neo4j_user=_get_env_any(["NEO4J_USERNAME", "NEO4J_USER"], "neo4j"),
         neo4j_password=_get_env("NEO4J_PASSWORD", "change-this-later"),
+        neo4j_database=_get_env("NEO4J_DATABASE", "neo4j"),
     )
