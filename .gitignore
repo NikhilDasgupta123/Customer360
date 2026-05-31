@@ -2,3 +2,8 @@
 /test
 *.zip
 *.pyc
+# Local runtime/test files
+.env
+login_response.json
+customergraph.db
+*.db

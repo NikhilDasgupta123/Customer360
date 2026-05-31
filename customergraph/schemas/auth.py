@@ -1,8 +1,4 @@
-"""Day 3 Pydantic schemas for upcoming auth APIs.
-
-Day 3 defines the request/response contracts only. Day 4 will attach these
-schemas to real login, token creation, refresh, and logout endpoints.
-"""
+"""Auth request and response schemas for Day 4 real auth APIs."""
 
 from __future__ import annotations
 
@@ -39,7 +35,7 @@ class LogoutRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Response body returned after successful login/refresh."""
+    """Tokens returned after successful login/refresh."""
 
     access_token: str
     refresh_token: str
@@ -56,6 +52,22 @@ class CurrentUserResponse(BaseModel):
     role: UserRole
     status: UserStatus
     allowed_modules: list[str]
+
+
+class AuthSuccessResponse(BaseModel):
+    """Response returned by bootstrap-admin and login."""
+
+    ok: bool
+    message: str
+    user: CurrentUserResponse
+    tokens: TokenResponse
+
+
+class MessageResponse(BaseModel):
+    """Generic success message."""
+
+    ok: bool
+    message: str
 
 
 class AuthDesignValidationResponse(BaseModel):

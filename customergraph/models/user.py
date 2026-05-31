@@ -1,8 +1,4 @@
-"""Day 3 auth domain model design.
-
-These are lightweight Python models for planning. Day 4/Day 5 can connect the
-same fields to a real database table and protected FastAPI dependencies.
-"""
+"""User domain models and enum values for CustomerGraph auth."""
 
 from __future__ import annotations
 
@@ -36,6 +32,34 @@ class TokenType(str, Enum):
 
     ACCESS = "access"
     REFRESH = "refresh"
+
+
+@dataclass(frozen=True)
+class UserRecord:
+    """Runtime user record loaded from SQLite."""
+
+    id: str
+    email: str
+    full_name: str
+    hashed_password: str
+    role: UserRole
+    status: UserStatus
+    is_first_admin: bool
+    created_at: str
+    updated_at: str
+    last_login_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RefreshTokenRecord:
+    """Runtime refresh-token record loaded from SQLite."""
+
+    id: str
+    user_id: str
+    token_hash: str
+    expires_at: str
+    revoked_at: Optional[str]
+    created_at: str
 
 
 @dataclass(frozen=True)

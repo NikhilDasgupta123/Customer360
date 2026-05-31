@@ -1,7 +1,7 @@
 """Application configuration for CustomerGraph AI.
 
-Day 3 keeps all Auth/JWT and future Neo4j values centralized so the
-upcoming login APIs do not hardcode secrets or environment-specific values.
+Day 4 keeps all Auth/JWT, SQLite, and future Neo4j values centralized so
+login APIs do not hardcode secrets or environment-specific values.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class Settings:
     docs_enabled: bool
     backend_cors_origins: list[str]
 
-    # Day 3 auth/JWT design settings.
+    # Day 4 auth/JWT settings.
     auth_secret_key: str
     jwt_algorithm: str
     access_token_expire_minutes: int
@@ -117,7 +117,7 @@ def get_settings() -> Settings:
     """Create settings once and reuse them across the application."""
     return Settings(
         app_name=_get_env("APP_NAME", "CustomerGraph AI"),
-        app_version=_get_env("APP_VERSION", "0.3.0"),
+        app_version=_get_env("APP_VERSION", "0.4.0"),
         environment=_get_env("ENVIRONMENT", "development"),
         debug=_get_bool("DEBUG", True),
         host=_get_env("HOST", "127.0.0.1"),
