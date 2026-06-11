@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, status
 
 from customergraph.schemas.auth import (
+    AccessRequestResponse,
     AuthSuccessResponse,
     CurrentUserResponse,
     FirstAdminCreateRequest,
@@ -14,6 +15,7 @@ from customergraph.schemas.auth import (
     LogoutRequest,
     MessageResponse,
     RefreshTokenRequest,
+    RequestAccessRequest,
     TokenResponse,
 )
 from customergraph.services.auth_service import (
@@ -22,6 +24,7 @@ from customergraph.services.auth_service import (
     get_current_user_from_access_token,
     logout,
     refresh_tokens,
+    request_access,
 )
 
 router = APIRouter(prefix="/auth", tags=["Day 4 - Auth APIs"])
@@ -55,6 +58,12 @@ def create_first_admin(payload: FirstAdminCreateRequest) -> AuthSuccessResponse:
 def login(payload: LoginRequest) -> AuthSuccessResponse:
     """Login using email/password and receive access + refresh tokens."""
     return authenticate_user(payload)
+
+
+@router.post("/request-access", response_model=AccessRequestResponse, status_code=status.HTTP_201_CREATED)
+def submit_access_request(payload: RequestAccessRequest) -> AccessRequestResponse:
+    """Submit a public Request Access form. User is created as pending."""
+    return request_access(payload)
 
 
 @router.post("/refresh", response_model=TokenResponse)

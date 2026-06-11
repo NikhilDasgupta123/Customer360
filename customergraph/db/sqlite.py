@@ -45,6 +45,7 @@ def init_auth_db() -> dict:
                 hashed_password TEXT NOT NULL,
                 role TEXT NOT NULL,
                 status TEXT NOT NULL,
+                company_team TEXT,
                 is_first_admin INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -65,6 +66,10 @@ def init_auth_db() -> dict:
             )
             """
         )
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "company_team" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN company_team TEXT")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)")
         conn.commit()

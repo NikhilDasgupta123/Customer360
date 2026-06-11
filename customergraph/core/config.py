@@ -62,6 +62,36 @@ def _get_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def _unique_items(items: list[str]) -> list[str]:
+    """Return unique non-empty values while keeping the original order."""
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in items:
+        cleaned = item.strip().rstrip("/")
+        if cleaned and cleaned not in seen:
+            unique.append(cleaned)
+            seen.add(cleaned)
+    return unique
+
+
+def _get_cors_origins() -> list[str]:
+    """Read CORS origins and always allow common local React/Vite dev URLs.
+
+    This prevents the frontend from failing when the .env file has an older
+    BACKEND_CORS_ORIGINS value that does not include the Vite URL.
+    """
+    local_dev_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    env_origins = _get_list("BACKEND_CORS_ORIGINS")
+    return _unique_items(env_origins + local_dev_origins)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings used by the FastAPI app."""
@@ -125,10 +155,7 @@ def get_settings() -> Settings:
         api_v1_prefix=_get_env("API_V1_PREFIX", "/api/v1"),
         log_level=_get_env("LOG_LEVEL", "INFO").upper(),
         docs_enabled=_get_bool("DOCS_ENABLED", True),
-        backend_cors_origins=_get_list(
-            "BACKEND_CORS_ORIGINS",
-            "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173",
-        ),
+        backend_cors_origins=_get_cors_origins(),
         # Supports both names so your existing .env with JWT_SECRET_KEY works.
         auth_secret_key=_get_env_any(
             ["JWT_SECRET_KEY", "AUTH_SECRET_KEY"],

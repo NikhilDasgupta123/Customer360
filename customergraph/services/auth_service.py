@@ -30,10 +30,13 @@ from customergraph.core.security import (
 from customergraph.db.sqlite import get_connection, get_sqlite_path, init_auth_db
 from customergraph.models.user import UserRole, UserStatus
 from customergraph.schemas.auth import (
+    AccessRequestResponse,
+    AccessRequestUserResponse,
     AuthSuccessResponse,
     CurrentUserResponse,
     FirstAdminCreateRequest,
     LoginRequest,
+    RequestAccessRequest,
     TokenResponse,
 )
 
@@ -41,6 +44,7 @@ from customergraph.schemas.auth import (
 AUTH_ENDPOINTS_DAY4 = [
     "POST /api/v1/auth/bootstrap-admin",
     "POST /api/v1/auth/login",
+    "POST /api/v1/auth/request-access",
     "POST /api/v1/auth/refresh",
     "POST /api/v1/auth/logout",
     "GET /api/v1/auth/me",
@@ -69,6 +73,26 @@ def _user_response(user: dict[str, Any]) -> CurrentUserResponse:
         status=status_value,
         allowed_modules=get_permissions_for_role(role.value),
     )
+
+
+def _access_request_user_response(user: dict[str, Any]) -> AccessRequestUserResponse:
+    """Return safe details for a newly submitted access request."""
+    return AccessRequestUserResponse(
+        id=user["id"],
+        email=user["email"],
+        full_name=user["full_name"],
+        role=UserRole(user["role"]),
+        status=UserStatus(user["status"]),
+        company_team=user.get("company_team"),
+    )
+
+
+ALLOWED_SELF_SERVICE_ROLES = {
+    UserRole.SALES_EXECUTIVE.value,
+    UserRole.ACCOUNT_MANAGER.value,
+    UserRole.SUPPORT_AGENT.value,
+    UserRole.CUSTOMER_SUCCESS_MANAGER.value,
+}
 
 
 def _create_refresh_token_for_user(conn: sqlite3.Connection, user_id: str) -> str:
@@ -160,6 +184,68 @@ def bootstrap_first_admin(payload: FirstAdminCreateRequest) -> AuthSuccessRespon
         message="First admin created successfully",
         user=_user_response(user),
         tokens=tokens,
+    )
+
+
+def request_access(payload: RequestAccessRequest) -> AccessRequestResponse:
+    """Create a pending user from the public Request Access form.
+
+    The user cannot login until an admin changes the status from pending to active.
+    Admin accounts are intentionally blocked from this public flow.
+    """
+    init_auth_db()
+    email = normalize_email(payload.email)
+    role = payload.role.value
+
+    if role not in ALLOWED_SELF_SERVICE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This role cannot be requested from the signup form",
+        )
+
+    with get_connection() as conn:
+        existing_user = conn.execute("SELECT id, status FROM users WHERE email = ?", (email,)).fetchone()
+        if existing_user is not None:
+            existing_status = existing_user["status"]
+            if existing_status == UserStatus.PENDING.value:
+                detail = "Access request already exists. Please wait for admin approval."
+            elif existing_status == UserStatus.ACTIVE.value:
+                detail = "Account already exists. Please login."
+            else:
+                detail = "Account exists but is not active. Contact your admin."
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+        now = utc_iso()
+        user_id = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO users (
+                id, email, full_name, hashed_password, role, status, company_team,
+                is_first_admin, created_at, updated_at, last_login_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL)
+            """,
+            (
+                user_id,
+                email,
+                payload.full_name.strip(),
+                hash_password(payload.password),
+                role,
+                UserStatus.PENDING.value,
+                payload.company_team,
+                now,
+                now,
+            ),
+        )
+        user = _row_to_user(conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone())
+        if user is None:
+            raise HTTPException(status_code=500, detail="Access request could not be created")
+        conn.commit()
+
+    return AccessRequestResponse(
+        ok=True,
+        message="Access request submitted. Please wait for admin approval.",
+        user=_access_request_user_response(user),
     )
 
 
