@@ -11,8 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from customergraph.api.router import api_router
 from customergraph.core.config import get_settings
 from customergraph.core.logging import RequestLoggingMiddleware, configure_logging, get_logger
-from customergraph.core.rbac import validate_rbac_matrix
-from customergraph.services.auth_design_service import validate_auth_design
+from customergraph.db.neo4j_client import close_neo4j_driver, verify_neo4j_connection
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -21,7 +20,7 @@ logger = get_logger("customergraph.app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Log application startup and shutdown."""
+    """Initialize and safely close shared application resources."""
     logger.info(
         "startup app=%s version=%s environment=%s api_prefix=%s",
         settings.app_name,
@@ -29,8 +28,26 @@ async def lifespan(app: FastAPI):
         settings.environment,
         settings.api_v1_prefix,
     )
-    yield
-    logger.info("shutdown app=%s", settings.app_name)
+
+    try:
+        connection = verify_neo4j_connection()
+        logger.info(
+            "neo4j_connected database=%s checked_at=%s",
+            connection["database"],
+            connection["checked_at"],
+        )
+    except Exception:
+        # CustomerGraph depends on Neo4j for customer, health, risk,
+        # recommendation, agent, and chatbot services.
+        logger.exception("neo4j_startup_connection_failed")
+        close_neo4j_driver()
+        raise
+
+    try:
+        yield
+    finally:
+        close_neo4j_driver()
+        logger.info("shutdown app=%s neo4j_driver_closed=true", settings.app_name)
 
 
 def create_app() -> FastAPI:
@@ -38,7 +55,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        description="CustomerGraph AI backend - Day 3 auth design with user model, JWT plan, and login flow.",
+        description="CustomerGraph AI backend for authentication and Neo4j graph services.",
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
         lifespan=lifespan,
@@ -55,30 +72,26 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
-    @app.get("/", tags=["Root"])
+    @app.get("/", tags=["System"], summary="Service information")
     def root() -> dict:
+        """Return the main service links."""
         return {
             "ok": True,
-            "message": "CustomerGraph AI backend is running",
-            "day": 3,
-            "docs": "http://127.0.0.1:8000/docs" if settings.docs_enabled else None,
-            "health": "http://127.0.0.1:8000/health",
+            "service": "customergraph-ai-backend",
+            "docs": "/docs" if settings.docs_enabled else None,
+            "health": "/health",
+            "graph_health": f"{settings.api_v1_prefix}/graph/health",
         }
 
-    @app.get("/health", tags=["Health"])
+    @app.get("/health", tags=["System"], summary="Check backend health")
     def health() -> dict:
-        rbac_status = validate_rbac_matrix()
-        auth_design_status = validate_auth_design()
+        """Return the basic backend health status."""
         return {
             "ok": True,
             "service": "customergraph-ai-backend",
             "status": "healthy",
-            "day": 3,
             "version": settings.app_version,
             "environment": settings.environment,
-            "api_prefix": settings.api_v1_prefix,
-            "rbac_ok": rbac_status["ok"],
-            "auth_design_ok": auth_design_status["ok"],
         }
 
     return app

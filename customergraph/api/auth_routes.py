@@ -1,4 +1,4 @@
-"""Day 4 real auth API endpoints."""
+"""Authentication endpoints for CustomerGraph AI."""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ from customergraph.services.auth_service import (
     request_access,
 )
 
-router = APIRouter(prefix="/auth", tags=["Day 4 - Auth APIs"])
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
-    """Extract token from Authorization: Bearer <token>."""
+    """Extract the access token from an Authorization bearer header."""
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -56,30 +56,30 @@ def create_first_admin(payload: FirstAdminCreateRequest) -> AuthSuccessResponse:
 
 @router.post("/login", response_model=AuthSuccessResponse)
 def login(payload: LoginRequest) -> AuthSuccessResponse:
-    """Login using email/password and receive access + refresh tokens."""
+    """Login using email and password to receive access and refresh tokens."""
     return authenticate_user(payload)
 
 
 @router.post("/request-access", response_model=AccessRequestResponse, status_code=status.HTTP_201_CREATED)
 def submit_access_request(payload: RequestAccessRequest) -> AccessRequestResponse:
-    """Submit a public Request Access form. User is created as pending."""
+    """Submit a user access request. The user is initially pending."""
     return request_access(payload)
 
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(payload: RefreshTokenRequest) -> TokenResponse:
-    """Rotate refresh token and receive a new access + refresh token pair."""
+    """Rotate the refresh token and issue a new token pair."""
     return refresh_tokens(payload.refresh_token)
 
 
 @router.post("/logout", response_model=MessageResponse)
 def logout_user(payload: LogoutRequest) -> dict:
-    """Revoke a refresh token. Existing access token expires naturally."""
+    """Revoke a refresh token. The access token expires naturally."""
     return logout(payload.refresh_token)
 
 
 @router.get("/me", response_model=CurrentUserResponse)
 def get_me(authorization: Annotated[str | None, Header(alias="Authorization")] = None) -> CurrentUserResponse:
-    """Return current user using Authorization: Bearer <access_token>."""
+    """Return the current user for a valid bearer access token."""
     token = _extract_bearer_token(authorization)
     return get_current_user_from_access_token(token)
