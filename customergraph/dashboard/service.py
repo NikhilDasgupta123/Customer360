@@ -105,7 +105,6 @@ def _load_dashboard_records_once(driver: Any, params: dict[str, Any]) -> tuple[A
                         THEN coalesce(
                             customer.revenue_at_risk,
                             customer.annual_contract_value,
-                            customer.contract_value,
                             0
                         )
                         ELSE 0
@@ -153,8 +152,7 @@ def _load_dashboard_records_once(driver: Any, params: dict[str, Any]) -> tuple[A
               )
             RETURN
                 count(invoice) AS delayed_invoices_count,
-                sum(coalesce(invoice.outstanding_amount, invoice.amount_due, invoice.amount, 0))
-                    AS delayed_invoices_amount
+                sum(coalesce(invoice.outstanding_amount, 0)) AS delayed_invoices_amount
             """,
             **params,
         ).single()
@@ -163,7 +161,7 @@ def _load_dashboard_records_once(driver: Any, params: dict[str, Any]) -> tuple[A
             f"""
             MATCH (customer:Customer)-[:HAS_OPPORTUNITY]->(opportunity:Opportunity)
             WHERE {_SCOPE_WHERE}
-              AND toLower(coalesce(opportunity.opportunity_type, opportunity.type, ""))
+              AND toLower(coalesce(opportunity.opportunity_type, ""))
                     IN ["upsell", "cross_sell"]
               AND NOT (
                     toLower(coalesce(opportunity.status, "open"))
@@ -171,8 +169,7 @@ def _load_dashboard_records_once(driver: Any, params: dict[str, Any]) -> tuple[A
               )
             RETURN
                 count(opportunity) AS upsell_opportunities_count,
-                sum(coalesce(opportunity.estimated_revenue, opportunity.potential_revenue, 0))
-                    AS upsell_potential_revenue
+                sum(coalesce(opportunity.estimated_revenue, 0)) AS upsell_potential_revenue
             """,
             **params,
         ).single()
@@ -208,7 +205,6 @@ def _load_dashboard_records_once(driver: Any, params: dict[str, Any]) -> tuple[A
                     coalesce(
                         customer.revenue_at_risk,
                         customer.annual_contract_value,
-                        customer.contract_value,
                         0
                     ) AS revenue_at_risk
                 ORDER BY coalesce(customer.health_score, 100) ASC, revenue_at_risk DESC
