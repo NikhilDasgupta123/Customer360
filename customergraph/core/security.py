@@ -1,9 +1,9 @@
-"""Security helpers for Day 4 auth APIs.
+"""Security helpers for CustomerGraph AI.
 
-This module intentionally keeps JWT creation/verification local and simple so
-CustomerGraph can run without a large auth framework. Password hashing prefers
-bcrypt through passlib. A PBKDF2 fallback exists only for local development when
-requirements were not installed yet.
+This module keeps JWT creation/verification local and simple so CustomerGraph
+can run without a large auth framework. Password hashing prefers bcrypt through
+passlib. A PBKDF2 fallback exists only for local development when requirements
+were not installed yet.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 
 def hash_token(token: str) -> str:
-    """Hash refresh tokens before storing them in SQLite."""
+    """Hash opaque refresh tokens before storing them in SQLite."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
@@ -99,9 +99,16 @@ def _b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + padding)
 
 
-def create_access_token(*, user_id: str, email: str, role: str) -> str:
-    """Create a signed HS256 JWT access token."""
+def create_access_token(*, user_id: str, email: str, role: str, token_version: int) -> str:
+    """Create a signed HS256 JWT access token.
+
+    ``token_version`` is compared against the database for every protected
+    request. Logout increments the database version, immediately invalidating
+    every old access token for that user.
+    """
     settings = get_settings()
+    if settings.jwt_algorithm != "HS256":
+        raise RuntimeError("CustomerGraph currently supports JWT_ALGORITHM=HS256 only.")
     now = utc_now()
     exp = now + timedelta(minutes=settings.access_token_expire_minutes)
     header = {"alg": settings.jwt_algorithm, "typ": "JWT"}
@@ -110,6 +117,7 @@ def create_access_token(*, user_id: str, email: str, role: str) -> str:
         "email": email,
         "role": role,
         "token_type": "access",
+        "token_version": token_version,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
@@ -132,6 +140,9 @@ def decode_access_token(token: str) -> dict[str, Any]:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    if settings.jwt_algorithm != "HS256":
+        raise RuntimeError("CustomerGraph currently supports JWT_ALGORITHM=HS256 only.")
+
     try:
         header_raw, payload_raw, signature_raw = token.split(".")
         signing_input = f"{header_raw}.{payload_raw}"
@@ -146,18 +157,24 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
         header = json.loads(_b64url_decode(header_raw))
         payload = json.loads(_b64url_decode(payload_raw))
+        if not isinstance(header, dict) or not isinstance(payload, dict):
+            raise credentials_error
+
+        expires_at = payload.get("exp")
+        if not isinstance(expires_at, int) or expires_at < int(utc_now().timestamp()):
+            raise credentials_error
     except Exception as exc:
         if isinstance(exc, HTTPException):
             raise exc
         raise credentials_error from exc
 
-    if header.get("alg") != settings.jwt_algorithm:
+    if header.get("alg") != "HS256":
         raise credentials_error
     if payload.get("token_type") != "access":
         raise credentials_error
-    if int(payload.get("exp", 0)) < int(utc_now().timestamp()):
+    if not isinstance(payload.get("sub"), str) or not payload["sub"].strip():
         raise credentials_error
-    if not payload.get("sub"):
+    if not isinstance(payload.get("token_version"), int) or payload["token_version"] < 0:
         raise credentials_error
 
     return payload

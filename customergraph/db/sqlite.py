@@ -1,4 +1,4 @@
-"""SQLite helpers for Day 4 local auth storage."""
+"""SQLite helpers for CustomerGraph local authentication storage."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ def get_sqlite_path() -> Path:
     database_url = get_settings().database_url
     prefix = "sqlite:///"
     if not database_url.startswith(prefix):
-        raise ValueError("Day 4 supports SQLite DATABASE_URL only, example: sqlite:///./customergraph.db")
+        raise ValueError("CustomerGraph supports SQLite DATABASE_URL only, example: sqlite:///./customergraph.db")
 
     raw_path = database_url.removeprefix(prefix)
     db_path = Path(raw_path)
@@ -33,7 +33,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_auth_db() -> dict:
-    """Create Day 4 auth tables if they do not exist."""
+    """Create and safely migrate CustomerGraph auth tables."""
     db_path = get_sqlite_path()
     with get_connection() as conn:
         conn.execute(
@@ -47,6 +47,7 @@ def init_auth_db() -> dict:
                 status TEXT NOT NULL,
                 company_team TEXT,
                 is_first_admin INTEGER NOT NULL DEFAULT 0,
+                token_version INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 last_login_at TEXT
@@ -66,9 +67,13 @@ def init_auth_db() -> dict:
             )
             """
         )
+
+        # Existing local databases are upgraded automatically without data loss.
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "company_team" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN company_team TEXT")
+        if "token_version" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)")

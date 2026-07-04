@@ -15,9 +15,18 @@ from customergraph.models.user import REFRESH_TOKEN_TABLE_COLUMNS, USER_TABLE_CO
 PLANNED_AUTH_ENDPOINTS = [
     "POST /api/v1/auth/bootstrap-admin",
     "POST /api/v1/auth/login",
+    "POST /api/v1/auth/request-access",
     "POST /api/v1/auth/refresh",
     "POST /api/v1/auth/logout",
     "GET /api/v1/auth/me",
+    "GET /api/v1/admin/access-requests?status=pending",
+    "PATCH /api/v1/admin/access-requests/{user_id}/approve",
+    "PATCH /api/v1/admin/access-requests/{user_id}/reject",
+    "GET /api/v1/admin/users",
+    "GET /api/v1/admin/users/summary",
+    "POST /api/v1/admin/users",
+    "PATCH /api/v1/admin/users/{user_id}",
+    "DELETE /api/v1/admin/users/{user_id}",
 ]
 
 
@@ -34,11 +43,11 @@ PASSWORD_HASHING_PLAN = {
 LOGIN_FLOW_STEPS = [
     {"step": 1, "name": "User submits email and password", "api": "POST /auth/login"},
     {"step": 2, "name": "Backend finds user by email", "failure": "Return 401 if not found"},
-    {"step": 3, "name": "Backend checks user status", "failure": "Block disabled users"},
-    {"step": 4, "name": "Backend verifies password hash", "failure": "Return 401 if password is wrong"},
-    {"step": 5, "name": "Backend creates access token", "purpose": "Short-lived API access"},
-    {"step": 6, "name": "Backend creates refresh token", "purpose": "Get a new access token later"},
-    {"step": 7, "name": "Backend writes audit event", "purpose": "Track login success/failure"},
+    {"step": 3, "name": "Backend loads the stored role", "purpose": "The browser cannot choose a role at login"},
+    {"step": 4, "name": "Backend checks user status", "failure": "Block pending or disabled users"},
+    {"step": 5, "name": "Backend verifies password hash", "failure": "Return 401 if password is wrong"},
+    {"step": 6, "name": "Backend creates access token", "purpose": "Short-lived API access"},
+    {"step": 7, "name": "Backend creates refresh token", "purpose": "Get a new access token later"},
     {"step": 8, "name": "Frontend stores token safely", "purpose": "Call protected APIs"},
 ]
 

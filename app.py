@@ -5,11 +5,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from customergraph.api.dependencies import CurrentUser, get_current_user
 from customergraph.api.router import api_router
-from customergraph.core.config import get_settings
+from customergraph.core.config import get_settings, validate_security_configuration
 from customergraph.core.logging import RequestLoggingMiddleware, configure_logging, get_logger
 from customergraph.db.neo4j_client import close_neo4j_driver, verify_neo4j_connection
 
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     )
 
     try:
+        validate_security_configuration()
         connection = verify_neo4j_connection()
         logger.info(
             "neo4j_connected database=%s checked_at=%s",
@@ -72,26 +74,38 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
-    @app.get("/", tags=["System"], summary="Service information")
-    def root() -> dict:
-        """Return the main service links."""
+    @app.get(
+        "/",
+        tags=["System"],
+        summary="Service information",
+        dependencies=[Depends(get_current_user)],
+    )
+    def root(current_user: CurrentUser) -> dict:
+        """Return service information to an authenticated user only."""
         return {
             "ok": True,
             "service": "customergraph-ai-backend",
             "docs": "/docs" if settings.docs_enabled else None,
             "health": "/health",
             "graph_health": f"{settings.api_v1_prefix}/graph/health",
+            "authenticated_user_id": current_user.id,
         }
 
-    @app.get("/health", tags=["System"], summary="Check backend health")
-    def health() -> dict:
-        """Return the basic backend health status."""
+    @app.get(
+        "/health",
+        tags=["System"],
+        summary="Check backend health",
+        dependencies=[Depends(get_current_user)],
+    )
+    def health(current_user: CurrentUser) -> dict:
+        """Return backend health only to an authenticated user."""
         return {
             "ok": True,
             "service": "customergraph-ai-backend",
             "status": "healthy",
             "version": settings.app_version,
             "environment": settings.environment,
+            "authenticated_user_id": current_user.id,
         }
 
     return app

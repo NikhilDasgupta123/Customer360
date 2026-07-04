@@ -9,14 +9,12 @@ from typing import Optional
 
 
 class UserRole(str, Enum):
-    """Valid CustomerGraph AI user roles."""
+    """The four supported CustomerGraph user roles."""
 
     ADMIN = "admin"
     SALES_EXECUTIVE = "sales_executive"
     ACCOUNT_MANAGER = "account_manager"
     SUPPORT_AGENT = "support_agent"
-    CUSTOMER_SUCCESS_MANAGER = "customer_success_manager"
-    MANAGER = "manager"
 
 
 class UserStatus(str, Enum):

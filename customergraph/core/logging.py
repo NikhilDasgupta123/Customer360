@@ -67,8 +67,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         response.headers["X-Process-Time-MS"] = str(duration_ms)
 
         logger.info(
-            "request_completed request_id=%s method=%s path=%s status=%s duration_ms=%s",
+            "request_completed request_id=%s actor_user_id=%s actor_role=%s method=%s path=%s status=%s duration_ms=%s",
             request_id,
+            getattr(request.state, "current_user_id", None),
+            getattr(request.state, "current_user_role", None),
             request.method,
             request.url.path,
             response.status_code,

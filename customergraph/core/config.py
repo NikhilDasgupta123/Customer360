@@ -113,6 +113,7 @@ class Settings:
     access_token_expire_minutes: int
     refresh_token_expire_days: int
     database_url: str
+    bootstrap_admin_key: str
 
     # Day 7 Neo4j placeholders.
     neo4j_uri: str
@@ -171,8 +172,32 @@ def get_settings() -> Settings:
             7,
         ),
         database_url=_get_env("DATABASE_URL", "sqlite:///./customergraph.db"),
+        # No default is intentionally supplied. The one-time first-admin API is
+        # unavailable until the deployment operator configures this secret.
+        bootstrap_admin_key=_get_env("BOOTSTRAP_ADMIN_KEY", ""),
         neo4j_uri=_get_env("NEO4J_URI", "bolt://localhost:7687"),
         neo4j_user=_get_env_any(["NEO4J_USERNAME", "NEO4J_USER"], "neo4j"),
         neo4j_password=_get_env("NEO4J_PASSWORD", "change-this-later"),
         neo4j_database=_get_env("NEO4J_DATABASE", "neo4j"),
     )
+
+
+def validate_security_configuration() -> None:
+    """Fail fast when production is configured with unsafe auth defaults.
+
+    Development can use the built-in fallback to keep local setup simple, but
+    a production deployment must explicitly set a strong JWT secret and
+    bootstrap key before it starts serving requests.
+    """
+    settings = get_settings()
+    if settings.is_development:
+        return
+
+    if settings.auth_secret_key == "change-this-secret-key" or len(settings.auth_secret_key) < 32:
+        raise ValueError(
+            "Production JWT_SECRET_KEY / AUTH_SECRET_KEY must be a unique value of at least 32 characters."
+        )
+    if not settings.bootstrap_admin_key or len(settings.bootstrap_admin_key) < 20:
+        raise ValueError(
+            "Production BOOTSTRAP_ADMIN_KEY must be set and contain at least 20 characters."
+        )

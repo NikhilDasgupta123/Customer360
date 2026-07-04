@@ -1,4 +1,4 @@
-"""Permission matrix for Day 1 RBAC freeze."""
+"""Permission matrix for CustomerGraph RBAC."""
 
 PERMISSION_MATRIX = {
     "admin": [
@@ -34,26 +34,6 @@ PERMISSION_MATRIX = {
         "customers",
         "support",
         "health_risk",
-        "agents",
-        "chatbot",
-    ],
-    "customer_success_manager": [
-        "auth",
-        "customers",
-        "dashboard",
-        "health_risk",
-        "support",
-        "sales_renewal",
-        "agents",
-        "chatbot",
-    ],
-    "manager": [
-        "auth",
-        "customers",
-        "dashboard",
-        "health_risk",
-        "support",
-        "sales_renewal",
         "agents",
         "chatbot",
     ],

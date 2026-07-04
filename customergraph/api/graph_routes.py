@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from neo4j.exceptions import Neo4jError
 
+from customergraph.api.dependencies import require_roles
 from customergraph.core.logging import get_logger
 from customergraph.db.neo4j_client import verify_neo4j_connection
+from customergraph.models.user import UserRole
 
 router = APIRouter(prefix="/graph", tags=["Graph"])
 logger = get_logger("customergraph.graph")
 
 
-@router.get("/health", summary="Check Neo4j graph connection")
+@router.get(
+    "/health",
+    summary="Check Neo4j graph connection",
+    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+)
 def graph_health() -> dict:
-    """Verify that CustomerGraph can reach the configured Neo4j database."""
+    """Verify that an Admin can reach the configured Neo4j database."""
     try:
         connection = verify_neo4j_connection()
     except Neo4jError as exc:
