@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from neo4j.exceptions import Neo4jError
 
-from customergraph.api.dependencies import require_roles
+from customergraph.auth.dependencies import require_roles
 from customergraph.core.logging import get_logger
 from customergraph.db.neo4j_client import verify_neo4j_connection
 from customergraph.models.user import UserRole

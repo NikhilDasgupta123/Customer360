@@ -8,8 +8,8 @@ required for onboarding. Every business router is included through
 from fastapi import APIRouter, Depends
 
 from .admin_routes import router as admin_router
-from .auth_routes import router as auth_router
-from .dependencies import get_current_user
+from customergraph.auth.dependencies import get_current_user
+from customergraph.auth.router import router as auth_router
 from .graph_routes import router as graph_router
 
 

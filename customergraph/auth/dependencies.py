@@ -1,5 +1,8 @@
 """Reusable authentication, RBAC, and request-scope dependencies.
 
+This module lives inside ``customergraph.auth`` because every protected route
+uses these authentication checks before business logic executes.
+
 All business routers must be mounted through ``protected_api_router`` in
 customergraph.api.router. This makes a verified Bearer access token mandatory
 before a business endpoint executes.
@@ -17,8 +20,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from customergraph.core.config import get_settings
 from customergraph.core.permissions import get_permissions_for_role
 from customergraph.models.user import UserRole
-from customergraph.schemas.auth import CurrentUserResponse
-from customergraph.services.auth_service import get_current_user_from_access_token
+from customergraph.auth.schemas import CurrentUserResponse
+from customergraph.auth.service import get_current_user_from_access_token
 
 
 # This is intentionally the only Swagger/OpenAPI authorization scheme.

@@ -1,11 +1,14 @@
-"""Authentication endpoints for CustomerGraph AI."""
+"""Authentication endpoints for CustomerGraph AI.
+
+The public API URLs remain unchanged even though the implementation now lives
+in ``customergraph.auth``."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
-from customergraph.api.dependencies import CurrentUser, require_initial_admin_bootstrap_key
-from customergraph.schemas.auth import (
+from customergraph.auth.dependencies import CurrentUser, require_initial_admin_bootstrap_key
+from customergraph.auth.schemas import (
     AccessRequestResponse,
     AuthSuccessResponse,
     CurrentUserResponse,
@@ -16,7 +19,7 @@ from customergraph.schemas.auth import (
     RequestAccessRequest,
     TokenResponse,
 )
-from customergraph.services.auth_service import (
+from customergraph.auth.service import (
     authenticate_user,
     bootstrap_first_admin,
     logout,

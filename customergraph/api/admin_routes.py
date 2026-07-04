@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, status
 
-from customergraph.api.dependencies import CurrentUser, require_roles
+from customergraph.auth.dependencies import CurrentUser, require_roles
 from customergraph.models.user import UserRole, UserStatus
-from customergraph.schemas.auth import (
+from customergraph.auth.schemas import (
     AccessRequestActionResponse,
     AccessRequestListResponse,
     AdminCreateUserRequest,

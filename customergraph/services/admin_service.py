@@ -8,10 +8,11 @@ import uuid
 from fastapi import HTTPException, status
 
 from customergraph.core.roles import get_role_keys
-from customergraph.core.security import hash_password, utc_iso
+from customergraph.auth.passwords import hash_password
+from customergraph.auth.tokens import utc_iso
 from customergraph.db.sqlite import get_connection, init_auth_db
 from customergraph.models.user import UserRole, UserStatus
-from customergraph.schemas.auth import (
+from customergraph.auth.schemas import (
     AccessRequestActionResponse,
     AccessRequestListResponse,
     AccessRequestUserResponse,
@@ -22,7 +23,7 @@ from customergraph.schemas.auth import (
     AdminUserResponse,
     AdminUserSummaryResponse,
 )
-from customergraph.services.auth_service import _access_request_user_response, _row_to_user, _supported_user_role, normalize_email
+from customergraph.auth.service import _access_request_user_response, _row_to_user, _supported_user_role, normalize_email
 
 
 AccessRequestAction = Literal["approve", "reject"]

@@ -8,7 +8,7 @@ import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from customergraph.api.dependencies import CurrentUser, get_current_user
+from customergraph.auth.dependencies import CurrentUser, get_current_user
 from customergraph.api.router import api_router
 from customergraph.core.config import get_settings, validate_security_configuration
 from customergraph.core.logging import RequestLoggingMiddleware, configure_logging, get_logger

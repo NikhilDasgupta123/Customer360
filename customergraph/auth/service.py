@@ -1,5 +1,8 @@
 """CustomerGraph authentication service.
 
+This module belongs to ``customergraph.auth`` so authentication logic stays
+separate from future dashboard, customer, risk, support, and billing modules.
+
 Implements first-admin bootstrap, login, JWT access token creation, refresh-token
 rotation, one-click logout, and current-user lookup using local SQLite.
 """
@@ -15,21 +18,19 @@ from fastapi import HTTPException, status
 
 from customergraph.core.config import get_settings
 from customergraph.core.permissions import get_permissions_for_role
-from customergraph.core.security import (
+from customergraph.auth.passwords import get_password_backend_name, hash_password, verify_password
+from customergraph.auth.tokens import (
     create_access_token,
     create_refresh_token,
     decode_access_token,
-    get_password_backend_name,
-    hash_password,
     hash_token,
     parse_utc,
     utc_iso,
     utc_now,
-    verify_password,
 )
 from customergraph.db.sqlite import get_connection, get_sqlite_path, init_auth_db
 from customergraph.models.user import UserRole, UserStatus
-from customergraph.schemas.auth import (
+from customergraph.auth.schemas import (
     AccessRequestResponse,
     AccessRequestUserResponse,
     AuthSuccessResponse,

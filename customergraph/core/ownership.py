@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from customergraph.schemas.auth import CurrentUserResponse
+from customergraph.auth.schemas import CurrentUserResponse
 
 
 _SAFE_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
