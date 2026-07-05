@@ -20,6 +20,7 @@ All money values must be numeric values in the organisation's selected currency.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,6 +30,8 @@ from customergraph.auth.schemas import CurrentUserResponse
 from customergraph.core.config import get_settings
 from customergraph.core.logging import get_logger
 from customergraph.dashboard.schemas import (
+    DashboardAIAction,
+    DashboardAISummary,
     DashboardHealthTrendPoint,
     DashboardHighRiskCustomer,
     DashboardSummaryResponse,
@@ -253,6 +256,59 @@ def _load_dashboard_records_with_retry(driver: Any, params: dict[str, Any]) -> t
     raise RuntimeError("Dashboard graph retry loop exited unexpectedly.")
 
 
+
+def _load_saved_ai_summary(driver: Any, *, is_admin: bool) -> DashboardAISummary | None:
+    """Read the last saved portfolio summary through the existing Dashboard API.
+
+    No new GET endpoint is needed for the frontend. Only Admin receives a
+    full-portfolio AI summary; other roles keep their existing scoped data.
+    """
+    if not is_admin:
+        return None
+    with driver.session(database=get_settings().neo4j_database) as session:
+        record = session.run(
+            """
+            MATCH (insight:PortfolioAIInsight {id: $insight_id})
+            RETURN insight
+            """,
+            insight_id="portfolio_ai_insight:customer_health_churn",
+        ).single()
+    if record is None:
+        return None
+    insight = record["insight"]
+    actions: list[DashboardAIAction] = []
+    try:
+        raw_actions = json.loads(str(insight.get("priority_actions_json") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raw_actions = []
+    for item in raw_actions if isinstance(raw_actions, list) else []:
+        if not isinstance(item, dict):
+            continue
+        customer_id = str(item.get("customer_id") or "").strip()
+        customer_name = str(item.get("customer_name") or "").strip()
+        recommendation = str(item.get("recommendation") or "").strip()
+        if customer_id and customer_name and recommendation:
+            actions.append(
+                DashboardAIAction(
+                    customer_id=customer_id,
+                    customer_name=customer_name,
+                    priority=str(item.get("priority") or "high"),
+                    action=recommendation,
+                )
+            )
+    generated_at = insight.get("generated_at")
+    if not isinstance(generated_at, datetime):
+        generated_at = datetime.now(timezone.utc)
+    elif generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=timezone.utc)
+    return DashboardAISummary(
+        portfolio_status=str(insight.get("portfolio_status") or "watch"),
+        summary=str(insight.get("executive_summary") or ""),
+        key_observations=list(insight.get("key_observations") or []),
+        priority_actions=actions,
+        generated_at=generated_at,
+    )
+
 def get_dashboard_summary(current_user: CurrentUserResponse) -> DashboardSummaryResponse:
     """Return live graph-derived dashboard metrics for the authenticated user.
 
@@ -311,6 +367,8 @@ def get_dashboard_summary(current_user: CurrentUserResponse) -> DashboardSummary
         for record in high_risk_records
     ]
 
+    ai_summary = _load_saved_ai_summary(driver, is_admin=bool(params["is_admin"]))
+
     return DashboardSummaryResponse(
         generated_at=datetime.now(timezone.utc),
         scope=scope,
@@ -325,4 +383,5 @@ def get_dashboard_summary(current_user: CurrentUserResponse) -> DashboardSummary
         revenue_at_risk=_number(_record_value(base_record, "revenue_at_risk")),
         health_score_trend=health_score_trend,
         top_high_risk_customers=top_high_risk_customers,
+        ai_summary=ai_summary,
     )

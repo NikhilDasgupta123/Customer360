@@ -26,6 +26,25 @@ class DashboardHighRiskCustomer(BaseModel):
     revenue_at_risk: float = Field(default=0, ge=0)
 
 
+class DashboardAIAction(BaseModel):
+    """One saved AI recommended action for the existing Dashboard GET response."""
+
+    customer_id: str
+    customer_name: str
+    priority: str
+    action: str
+
+
+class DashboardAISummary(BaseModel):
+    """Latest saved dashboard AI summary; null until Analyse Portfolio is used."""
+
+    portfolio_status: str
+    summary: str
+    key_observations: list[str] = Field(default_factory=list)
+    priority_actions: list[DashboardAIAction] = Field(default_factory=list)
+    generated_at: datetime
+
+
 class DashboardSummaryResponse(BaseModel):
     """Single API response consumed by the React Main Dashboard screen."""
 
@@ -46,3 +65,4 @@ class DashboardSummaryResponse(BaseModel):
     revenue_at_risk: float = Field(default=0, ge=0)
     health_score_trend: list[DashboardHealthTrendPoint] = Field(default_factory=list)
     top_high_risk_customers: list[DashboardHighRiskCustomer] = Field(default_factory=list)
+    ai_summary: DashboardAISummary | None = None

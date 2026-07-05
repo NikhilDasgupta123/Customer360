@@ -26,6 +26,10 @@ class CustomerListItem(BaseModel):
     open_ticket_count: int = Field(default=0, ge=0)
     annual_contract_value: float = Field(default=0, ge=0)
     last_activity_date: str | None = None
+    ai_risk_level: str | None = None
+    ai_summary: str | None = None
+    ai_recommended_action: str | None = None
+    ai_generated_at: str | None = None
 
 
 class CustomerListResponse(BaseModel):

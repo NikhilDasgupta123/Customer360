@@ -13,6 +13,7 @@ from customergraph.auth.router import router as auth_router
 from .graph_routes import router as graph_router
 from customergraph.dashboard.router import router as dashboard_router
 from customergraph.customers.router import router as customers_router
+from customergraph.agents.router import router as agents_router
 
 
 api_router = APIRouter()
@@ -28,5 +29,6 @@ protected_api_router.include_router(graph_router)
 protected_api_router.include_router(admin_router)
 protected_api_router.include_router(dashboard_router)
 protected_api_router.include_router(customers_router)
+protected_api_router.include_router(agents_router)
 
 api_router.include_router(protected_api_router)

@@ -56,6 +56,17 @@ def _get_int_any(names: list[str], default: int) -> int:
     return default
 
 
+def _get_float(name: str, default: float) -> float:
+    """Read a bounded numeric environment variable safely."""
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def _get_list(name: str, default: str = "") -> list[str]:
     """Read comma-separated environment variables."""
     raw_value = os.getenv(name, default)
@@ -121,6 +132,17 @@ class Settings:
     neo4j_password: str
     neo4j_database: str
 
+    # Local Ollama / AI-agent settings. These are intentionally separate from
+    # the customer graph settings so agent execution can be disabled safely.
+    ollama_enabled: bool
+    ollama_base_url: str
+    ollama_model: str
+    ollama_request_timeout_seconds: int
+    ollama_keep_alive: str
+    ollama_temperature: float
+    ai_agents_enabled: bool
+    ai_agent_max_customers_per_portfolio_run: int
+
     @property
     def is_development(self) -> bool:
         """Return True when the backend is running in development mode."""
@@ -140,6 +162,11 @@ class Settings:
             "jwt_algorithm": self.jwt_algorithm,
             "access_token_expire_minutes": self.access_token_expire_minutes,
             "refresh_token_expire_days": self.refresh_token_expire_days,
+            "ollama_enabled": self.ollama_enabled,
+            "ollama_base_url": self.ollama_base_url,
+            "ollama_model": self.ollama_model,
+            "ai_agents_enabled": self.ai_agents_enabled,
+            "ai_agent_max_customers_per_portfolio_run": self.ai_agent_max_customers_per_portfolio_run,
         }
 
 
@@ -179,6 +206,21 @@ def get_settings() -> Settings:
         neo4j_user=_get_env_any(["NEO4J_USERNAME", "NEO4J_USER"], "neo4j"),
         neo4j_password=_get_env("NEO4J_PASSWORD", "change-this-later"),
         neo4j_database=_get_env("NEO4J_DATABASE", "neo4j"),
+        ollama_enabled=_get_bool("OLLAMA_ENABLED", True),
+        # Either http://host:11434 or http://host:11434/api is accepted.
+        ollama_base_url=_get_env("OLLAMA_BASE_URL", "http://127.0.0.1:11434/api"),
+        ollama_model=_get_env("OLLAMA_MODEL", "qwen3.5:4b"),
+        ollama_request_timeout_seconds=_get_int_any(
+            ["OLLAMA_REQUEST_TIMEOUT_SECONDS", "OLLAMA_TIMEOUT_SECONDS"],
+            180,
+        ),
+        ollama_keep_alive=_get_env("OLLAMA_KEEP_ALIVE", "15m"),
+        ollama_temperature=_get_float("OLLAMA_TEMPERATURE", 0.1),
+        ai_agents_enabled=_get_bool("AI_AGENTS_ENABLED", True),
+        ai_agent_max_customers_per_portfolio_run=_get_int_any(
+            ["AI_AGENT_MAX_CUSTOMERS_PER_PORTFOLIO_RUN"],
+            250,
+        ),
     )
 
 

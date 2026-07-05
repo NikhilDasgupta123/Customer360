@@ -187,6 +187,8 @@ def _load_customer_list_once(
                             ELSE 0
                         END
                     ) AS open_ticket_count
+                OPTIONAL MATCH (customer)-[:HAS_AI_INSIGHT]->(ai_insight:CustomerAIInsight {agent_type: "customer_health_churn"})
+                WITH customer, owner, open_ticket_count, head(collect(ai_insight)) AS ai_insight
                 RETURN
                     coalesce(customer.id, elementId(customer)) AS customer_id,
                     coalesce(customer.company_name, customer.name, "Unnamed Customer") AS company_name,
@@ -201,6 +203,10 @@ def _load_customer_list_once(
                     open_ticket_count,
                     coalesce(customer.annual_contract_value, 0) AS annual_contract_value,
                     toString(customer.last_activity_date) AS last_activity_date,
+                    ai_insight.risk_level AS ai_risk_level,
+                    ai_insight.executive_summary AS ai_summary,
+                    ai_insight.recommended_action AS ai_recommended_action,
+                    toString(ai_insight.generated_at) AS ai_generated_at,
                     {sort_expression} AS sort_value
                 ORDER BY sort_value {direction}, company_name ASC
                 SKIP $offset
@@ -306,6 +312,26 @@ def list_customers(
             last_activity_date=(
                 str(_record_value(record, "last_activity_date"))
                 if _record_value(record, "last_activity_date") not in {None, "None"}
+                else None
+            ),
+            ai_risk_level=(
+                str(_record_value(record, "ai_risk_level"))
+                if _record_value(record, "ai_risk_level") is not None
+                else None
+            ),
+            ai_summary=(
+                str(_record_value(record, "ai_summary"))
+                if _record_value(record, "ai_summary") is not None
+                else None
+            ),
+            ai_recommended_action=(
+                str(_record_value(record, "ai_recommended_action"))
+                if _record_value(record, "ai_recommended_action") is not None
+                else None
+            ),
+            ai_generated_at=(
+                str(_record_value(record, "ai_generated_at"))
+                if _record_value(record, "ai_generated_at") not in {None, "None"}
                 else None
             ),
         )
