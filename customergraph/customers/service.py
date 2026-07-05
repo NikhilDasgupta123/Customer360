@@ -23,6 +23,7 @@ from customergraph.models.user import UserRole
 logger = get_logger("customergraph.customers")
 
 _OPEN_TICKET_STATUSES = ["open", "in_progress", "pending"]
+_CUSTOMER_AI_AGENT_TYPE = "customer_health_churn"
 _SORT_EXPRESSIONS = {
     "company_name": "toLower(coalesce(customer.company_name, customer.name, ''))",
     "health_score": "coalesce(customer.health_score, -1)",
@@ -117,6 +118,7 @@ def _scope_params(current_user: CurrentUserResponse, filters: CustomerListFilter
             "risk_level": filters.risk_level or "",
             "renewal_within_days": filters.renewal_within_days,
             "open_ticket_statuses": _OPEN_TICKET_STATUSES,
+            "customer_ai_agent_type": _CUSTOMER_AI_AGENT_TYPE,
             "limit": filters.limit,
             "offset": filters.offset,
         },
@@ -187,7 +189,11 @@ def _load_customer_list_once(
                             ELSE 0
                         END
                     ) AS open_ticket_count
-                OPTIONAL MATCH (customer)-[:HAS_AI_INSIGHT]->(ai_insight:CustomerAIInsight {agent_type: "customer_health_churn"})
+                // Do not put a Cypher map literal inside this Python f-string.
+                // The agent type is passed as a Cypher parameter, avoiding an inline map literal.
+                // as a missing Python variable and works before AI insight nodes exist.
+                OPTIONAL MATCH (customer)-[:HAS_AI_INSIGHT]->(ai_insight:CustomerAIInsight)
+                WHERE ai_insight.agent_type = $customer_ai_agent_type
                 WITH customer, owner, open_ticket_count, head(collect(ai_insight)) AS ai_insight
                 RETURN
                     coalesce(customer.id, elementId(customer)) AS customer_id,

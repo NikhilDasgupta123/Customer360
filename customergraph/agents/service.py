@@ -13,13 +13,17 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from customergraph.agents.data_service import (
     CustomerAnalysisAccessError,
     CustomerAnalysisContext,
     load_customer_context,
     load_portfolio_contexts,
+)
+from customergraph.agents.dashboard_widget_agent import (
+    DashboardWidgetInsight,
+    analyse_dashboard_widget,
 )
 from customergraph.agents.health_churn_agent import analyse_customer_health_and_churn
 from customergraph.agents.portfolio_agent import summarise_portfolio_health_and_churn
@@ -30,6 +34,8 @@ from customergraph.agents.schemas import (
     AgentType,
     CustomerAIInsightResponse,
     CustomerHealthChurnInsight,
+    DashboardAnalysisSection,
+    DashboardWidgetAnalysisResponse,
     PortfolioAIInsightResponse,
     SimpleCustomerAnalysisResponse,
     SimplePortfolioAction,
@@ -38,6 +44,7 @@ from customergraph.agents.schemas import (
 from customergraph.auth.schemas import CurrentUserResponse
 from customergraph.core.config import get_settings
 from customergraph.core.logging import get_logger
+from customergraph.dashboard.service import get_dashboard_summary
 from customergraph.db.neo4j_client import get_neo4j_driver
 from customergraph.llm import get_ollama_health
 
@@ -881,6 +888,408 @@ def analyse_portfolio_now(actor: AgentActor) -> SimplePortfolioAnalysisResponse:
         )
     except Exception as exc:
         logger.exception("portfolio_ai_analysis_failed")
+        _update_run(
+            run_id,
+            status=AgentRunStatus.FAILED.value,
+            completed_at=_now(),
+            error_message=_clean_error(exc),
+        )
+        raise
+
+
+_DASHBOARD_WIDGET_TITLES: dict[str, str] = {
+    DashboardAnalysisSection.TOTAL_CUSTOMERS.value: "Customer base overview",
+    DashboardAnalysisSection.HIGH_RISK_CUSTOMERS.value: "High-risk customer review",
+    DashboardAnalysisSection.UPCOMING_RENEWALS.value: "Upcoming renewal review",
+    DashboardAnalysisSection.OPEN_CRITICAL_TICKETS.value: "Critical support review",
+    DashboardAnalysisSection.DELAYED_INVOICES.value: "Delayed invoice review",
+    DashboardAnalysisSection.UPSELL_OPPORTUNITIES.value: "Upsell opportunity review",
+    DashboardAnalysisSection.REVENUE_AT_RISK.value: "Revenue-at-risk review",
+    DashboardAnalysisSection.HEALTH_SCORE_TREND.value: "Health score trend review",
+    DashboardAnalysisSection.TOP_HIGH_RISK_CUSTOMERS.value: "Top high-risk accounts",
+}
+
+
+def _compact_amount(value: float) -> str:
+    """Human-readable money for factual fallback copy only."""
+    amount = max(0.0, float(value or 0.0))
+    if amount >= 10_000_000:
+        return f"₹{amount / 10_000_000:.2f}".rstrip("0").rstrip(".") + " Cr"
+    if amount >= 100_000:
+        return f"₹{amount / 100_000:.1f}".rstrip("0").rstrip(".") + " L"
+    return f"₹{amount:,.0f}"
+
+
+def _dashboard_widget_customer_rows(contexts: list[CustomerAnalysisContext]) -> list[tuple[CustomerAnalysisContext, CustomerHealthChurnInsight]]:
+    """Use deterministic, factual candidates to rank per-widget customer detail."""
+    return [(context, _portfolio_candidate_insight(context)) for context in contexts]
+
+
+def _customer_row_payload(context: CustomerAnalysisContext, insight: CustomerHealthChurnInsight) -> dict[str, Any]:
+    return {
+        "customer_id": context.customer_id,
+        "customer_name": context.customer_name,
+        "health_score": context.health_score,
+        "risk_level": insight.risk_level,
+        "priority": insight.priority,
+        "days_until_renewal": context.days_until_renewal,
+        "critical_ticket_count": context.critical_ticket_count,
+        "overdue_invoice_count": context.overdue_invoice_count,
+        "overdue_invoice_amount": context.overdue_invoice_amount,
+        "open_upsell_opportunity_count": context.open_upsell_opportunity_count,
+        "open_upsell_potential_revenue": context.open_upsell_potential_revenue,
+        "revenue_at_risk": context.revenue_at_risk,
+    }
+
+
+def _rank_rows(rows: list[tuple[CustomerAnalysisContext, CustomerHealthChurnInsight]]) -> list[tuple[CustomerAnalysisContext, CustomerHealthChurnInsight]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            row[1].priority != "urgent",
+            row[1].risk_level not in {"critical", "high"},
+            -row[1].churn_probability,
+            -(row[0].revenue_at_risk or row[0].annual_contract_value),
+        ),
+    )
+
+
+def _build_dashboard_widget_input(
+    section: DashboardAnalysisSection,
+    *,
+    dashboard: Any,
+    rows: list[tuple[CustomerAnalysisContext, CustomerHealthChurnInsight]],
+) -> tuple[dict[str, Any], DashboardWidgetInsight]:
+    """Build one bounded factual prompt and a transparent fallback per widget."""
+    section_key = section.value
+    base = {
+        "scope": dashboard.scope,
+        "total_customers": dashboard.total_customers,
+        "high_risk_customers": dashboard.high_risk_customers,
+        "upcoming_renewals_next_30_days": dashboard.upcoming_renewals_next_30_days,
+        "open_critical_tickets": dashboard.open_critical_tickets,
+        "delayed_invoices_count": dashboard.delayed_invoices_count,
+        "delayed_invoices_amount": dashboard.delayed_invoices_amount,
+        "upsell_opportunities_count": dashboard.upsell_opportunities_count,
+        "upsell_potential_revenue": dashboard.upsell_potential_revenue,
+        "revenue_at_risk": dashboard.revenue_at_risk,
+    }
+    ranked = _rank_rows(rows)
+    high_rows = [row for row in ranked if row[1].risk_level in {"high", "critical"}]
+
+    if section_key == DashboardAnalysisSection.TOTAL_CUSTOMERS.value:
+        status = "attention" if dashboard.high_risk_customers else "stable"
+        return (
+            {
+                **base,
+                "risk_distribution": {
+                    "high_or_critical": len(high_rows),
+                    "urgent": sum(1 for _, insight in rows if insight.priority == "urgent"),
+                },
+            },
+            DashboardWidgetInsight(
+                status=status,
+                summary=(
+                    f"{dashboard.total_customers} active customer(s) are currently in scope. "
+                    f"{dashboard.high_risk_customers} account(s) need elevated attention."
+                ),
+                evidence=[
+                    f"{dashboard.total_customers} active customer(s) are in the current portfolio scope.",
+                    f"{dashboard.high_risk_customers} customer(s) are marked high or critical risk.",
+                ],
+                recommended_action="Review ownership and recovery coverage for the high-risk accounts before the next portfolio review.",
+            ),
+        )
+
+    if section_key in {DashboardAnalysisSection.HIGH_RISK_CUSTOMERS.value, DashboardAnalysisSection.TOP_HIGH_RISK_CUSTOMERS.value}:
+        candidates = [_customer_row_payload(context, insight) for context, insight in high_rows[:5]]
+        status = "critical" if any(insight.risk_level == "critical" for _, insight in high_rows) else ("attention" if high_rows else "stable")
+        title = "top 5" if section_key == DashboardAnalysisSection.TOP_HIGH_RISK_CUSTOMERS.value else "high-risk"
+        return (
+            {**base, "selected_group": title, "customers": candidates},
+            DashboardWidgetInsight(
+                status=status,
+                summary=(
+                    f"{dashboard.high_risk_customers} high-risk customer(s) are currently flagged. "
+                    f"The highest-priority accounts should receive a named owner review."
+                    if high_rows
+                    else "No high-risk customers are currently flagged in the available portfolio data."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: {insight.risk_level.title()} risk"
+                        + (f", health score {round(context.health_score)}" if context.health_score is not None else "")
+                        for context, insight in high_rows[:3]
+                    ],
+                ] or ["No high-risk customer evidence is currently available."],
+                recommended_action=(
+                    "Assign or confirm an accountable owner for the highest-risk accounts and review their recovery plans."
+                    if high_rows
+                    else "Continue routine account health monitoring."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.UPCOMING_RENEWALS.value:
+        candidates = sorted(
+            [row for row in rows if row[0].days_until_renewal is not None and 0 <= row[0].days_until_renewal <= 30],
+            key=lambda row: row[0].days_until_renewal or 999,
+        )[:5]
+        return (
+            {**base, "renewal_candidates": [_customer_row_payload(context, insight) for context, insight in candidates]},
+            DashboardWidgetInsight(
+                status="attention" if dashboard.upcoming_renewals_next_30_days else "stable",
+                summary=(
+                    f"{dashboard.upcoming_renewals_next_30_days} renewal(s) are due within the next 30 days. "
+                    "Prioritise accounts that also show support, billing, or health risk signals."
+                    if dashboard.upcoming_renewals_next_30_days
+                    else "No renewals are due within the next 30 days in the current portfolio scope."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: renewal due in {context.days_until_renewal} day(s)."
+                        for context, _ in candidates[:3]
+                    ],
+                ] or ["No renewal candidate is due within 30 days."],
+                recommended_action=(
+                    "Confirm account ownership and renewal plans for the nearest due customers this week."
+                    if candidates
+                    else "Continue monitoring the renewal calendar."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.OPEN_CRITICAL_TICKETS.value:
+        candidates = sorted(
+            [row for row in rows if row[0].critical_ticket_count > 0],
+            key=lambda row: (-row[0].critical_ticket_count, row[0].days_until_renewal or 999),
+        )[:5]
+        return (
+            {**base, "critical_ticket_customers": [_customer_row_payload(context, insight) for context, insight in candidates]},
+            DashboardWidgetInsight(
+                status="critical" if dashboard.open_critical_tickets else "stable",
+                summary=(
+                    f"{dashboard.open_critical_tickets} critical support ticket(s) are open right now. "
+                    "Affected customer accounts should have a recovery owner and escalation path."
+                    if dashboard.open_critical_tickets
+                    else "No critical support tickets are currently open in the available portfolio data."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: {context.critical_ticket_count} critical ticket(s) open."
+                        for context, _ in candidates[:3]
+                    ],
+                ] or ["No customer currently has an open critical support ticket."],
+                recommended_action=(
+                    "Confirm an owner and resolution plan for each critical ticket before the next customer update."
+                    if candidates
+                    else "Continue routine support monitoring."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.DELAYED_INVOICES.value:
+        candidates = sorted(
+            [row for row in rows if row[0].overdue_invoice_count > 0],
+            key=lambda row: -row[0].overdue_invoice_amount,
+        )[:5]
+        return (
+            {**base, "overdue_invoice_customers": [_customer_row_payload(context, insight) for context, insight in candidates]},
+            DashboardWidgetInsight(
+                status="attention" if dashboard.delayed_invoices_count else "stable",
+                summary=(
+                    f"{dashboard.delayed_invoices_count} delayed invoice(s) total {_compact_amount(dashboard.delayed_invoices_amount)}. "
+                    "Billing follow-up should be coordinated with account risk and renewal context."
+                    if dashboard.delayed_invoices_count
+                    else "No delayed invoices are currently recorded in the available portfolio data."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: {_compact_amount(context.overdue_invoice_amount)} overdue across {context.overdue_invoice_count} invoice(s)."
+                        for context, _ in candidates[:3]
+                    ],
+                ] or ["No overdue invoice customer is currently available."],
+                recommended_action=(
+                    "Review the largest overdue balances with the account owner and confirm a follow-up plan."
+                    if candidates
+                    else "Continue routine billing monitoring."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.UPSELL_OPPORTUNITIES.value:
+        candidates = sorted(
+            [row for row in rows if row[0].open_upsell_opportunity_count > 0],
+            key=lambda row: -row[0].open_upsell_potential_revenue,
+        )[:5]
+        return (
+            {**base, "upsell_customers": [_customer_row_payload(context, insight) for context, insight in candidates]},
+            DashboardWidgetInsight(
+                status="opportunity" if dashboard.upsell_opportunities_count else "info",
+                summary=(
+                    f"{dashboard.upsell_opportunities_count} open expansion opportunity(s) represent "
+                    f"{_compact_amount(dashboard.upsell_potential_revenue)} in potential revenue."
+                    if dashboard.upsell_opportunities_count
+                    else "No open upsell opportunity is currently available in the portfolio data."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: {_compact_amount(context.open_upsell_potential_revenue)} potential across {context.open_upsell_opportunity_count} opportunity(s)."
+                        for context, _ in candidates[:3]
+                    ],
+                ] or ["No open expansion opportunity is currently available."],
+                recommended_action=(
+                    "Validate the highest-value expansion opportunities with the account owners before adding them to the sales plan."
+                    if candidates
+                    else "Continue monitoring customer expansion signals."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.REVENUE_AT_RISK.value:
+        candidates = sorted(rows, key=lambda row: -row[0].revenue_at_risk)[:5]
+        return (
+            {**base, "revenue_risk_customers": [_customer_row_payload(context, insight) for context, insight in candidates]},
+            DashboardWidgetInsight(
+                status="attention" if dashboard.revenue_at_risk else "stable",
+                summary=(
+                    f"Estimated revenue at risk is {_compact_amount(dashboard.revenue_at_risk)} across high and critical portfolio accounts. "
+                    "Focus recovery coverage on the customers with the largest exposure."
+                    if dashboard.revenue_at_risk
+                    else "No revenue-at-risk amount is currently recorded in the available portfolio data."
+                ),
+                evidence=[
+                    *[
+                        f"{context.customer_name}: {_compact_amount(context.revenue_at_risk)} revenue at risk."
+                        for context, _ in candidates[:3] if context.revenue_at_risk > 0
+                    ],
+                ] or ["No customer-level revenue-at-risk value is currently available."],
+                recommended_action=(
+                    "Review the largest revenue exposures with the accountable customer owners and confirm recovery actions."
+                    if dashboard.revenue_at_risk
+                    else "Continue routine portfolio risk monitoring."
+                ),
+            ),
+        )
+
+    if section_key == DashboardAnalysisSection.HEALTH_SCORE_TREND.value:
+        trend = [
+            {"month": point.month, "average_health_score": point.average_health_score}
+            for point in dashboard.health_score_trend
+        ]
+        scores = [point["average_health_score"] for point in trend]
+        change = (scores[-1] - scores[0]) if len(scores) >= 2 else 0
+        status = "critical" if change <= -10 else ("attention" if change <= -3 else "stable")
+        direction = "declined" if change < 0 else ("improved" if change > 0 else "remained stable")
+        return (
+            {**base, "health_score_trend": trend, "change_from_first_to_latest": change},
+            DashboardWidgetInsight(
+                status=status,
+                summary=(
+                    f"Average portfolio health has {direction} by {abs(round(change, 1))} point(s) across the available trend period."
+                    if len(scores) >= 2
+                    else "Not enough health-score trend data is available to assess movement over time."
+                ),
+                evidence=[
+                    *[
+                        f"{point['month']}: average health score {round(point['average_health_score'], 1)}."
+                        for point in trend[-3:]
+                    ],
+                ] or ["No monthly health-score trend point is currently available."],
+                recommended_action=(
+                    "Review the accounts contributing to the recent health-score movement and confirm an owner action for material declines."
+                    if len(scores) >= 2 and change < 0
+                    else "Continue monitoring the health-score trend as new monthly snapshots are recorded."
+                ),
+            ),
+        )
+
+    raise ValueError(f"Unsupported dashboard AI analysis section: {section_key}")
+
+
+DashboardProgressCallback = Callable[[str, str, int], None]
+
+
+def _emit_dashboard_progress(
+    callback: DashboardProgressCallback | None,
+    stage: str,
+    message: str,
+    progress: int,
+) -> None:
+    """Emit a safe, user-facing lifecycle update for the SSE response.
+
+    These messages describe request processing stages only. They never expose raw
+    LLM tokens, prompts, chain-of-thought, or Neo4j records.
+    """
+    if callback is None:
+        return
+    try:
+        callback(stage, message, max(0, min(100, int(progress))))
+    except Exception:
+        logger.debug("dashboard_widget_progress_callback_failed stage=%s", stage, exc_info=True)
+
+
+def analyse_dashboard_widget_now(
+    section: DashboardAnalysisSection,
+    actor: AgentActor,
+    progress_callback: DashboardProgressCallback | None = None,
+) -> DashboardWidgetAnalysisResponse:
+    """Run one selected Dashboard widget analysis through the single AI API.
+
+    ``progress_callback`` is optional and only used by ``stream=true``. The normal
+    JSON request keeps the same behaviour and response contract.
+    """
+    _emit_dashboard_progress(progress_callback, "starting", "Starting the focused dashboard analysis.", 6)
+    _assert_agents_ready()
+    current_user = actor.as_current_user()
+    section_key = section.value
+    run_id = _create_run(scope="dashboard_widget", actor=actor, customer_id=section_key)
+    try:
+        _update_run(
+            run_id,
+            status=AgentRunStatus.RUNNING.value,
+            started_at=_now(),
+            total_customers=0,
+            error_message=None,
+        )
+        _emit_dashboard_progress(progress_callback, "dashboard_data", "Reading the current dashboard values.", 20)
+        dashboard = get_dashboard_summary(current_user)
+        # A widget needs only the highest-priority sample for evidence. Live KPI totals
+        # still come from get_dashboard_summary(), so one sparkle click remains quick.
+        _emit_dashboard_progress(progress_callback, "customer_signals", "Checking the relevant customer signals.", 42)
+        contexts = load_portfolio_contexts(current_user, limit=25)
+        rows = _dashboard_widget_customer_rows(contexts)
+        facts, fallback = _build_dashboard_widget_input(section, dashboard=dashboard, rows=rows)
+        _emit_dashboard_progress(progress_callback, "ai_brief", "Generating a validated AI brief.", 70)
+        result = analyse_dashboard_widget(section=section_key, facts=facts, fallback=fallback)
+        _emit_dashboard_progress(progress_callback, "validation", "Validating the AI response against the dashboard facts.", 90)
+        completed_at = _now()
+        _update_run(
+            run_id,
+            status=AgentRunStatus.COMPLETED.value,
+            completed_at=completed_at,
+            total_customers=len(contexts),
+            processed_customers=len(contexts),
+            successful_customers=len(contexts),
+            failed_customers=0,
+            total_llm_duration_ms=result.total_duration_ms or 0,
+            model=result.model,
+            error_message=None,
+        )
+        response = DashboardWidgetAnalysisResponse(
+            message="AI widget analysis completed.",
+            section=section,
+            title=_DASHBOARD_WIDGET_TITLES[section_key],
+            status=result.insight.status,
+            summary=result.insight.summary,
+            evidence=result.insight.evidence,
+            recommended_action=result.insight.recommended_action,
+            generated_at=completed_at,
+        )
+        _emit_dashboard_progress(progress_callback, "completed", "Validated insight is ready.", 100)
+        return response
+    except Exception as exc:
+        logger.exception("dashboard_widget_ai_analysis_failed section=%s", section_key)
         _update_run(
             run_id,
             status=AgentRunStatus.FAILED.value,

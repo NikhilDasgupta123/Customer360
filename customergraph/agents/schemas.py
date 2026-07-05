@@ -169,3 +169,31 @@ class SimplePortfolioAnalysisResponse(BaseModel):
     key_observations: list[str] = Field(default_factory=list)
     priority_actions: list[SimplePortfolioAction] = Field(default_factory=list)
     generated_at: datetime
+
+
+class DashboardAnalysisSection(str, Enum):
+    """The one dashboard area selected by a sparkle button."""
+
+    TOTAL_CUSTOMERS = "total_customers"
+    HIGH_RISK_CUSTOMERS = "high_risk_customers"
+    UPCOMING_RENEWALS = "upcoming_renewals"
+    OPEN_CRITICAL_TICKETS = "open_critical_tickets"
+    DELAYED_INVOICES = "delayed_invoices"
+    UPSELL_OPPORTUNITIES = "upsell_opportunities"
+    REVENUE_AT_RISK = "revenue_at_risk"
+    HEALTH_SCORE_TREND = "health_score_trend"
+    TOP_HIGH_RISK_CUSTOMERS = "top_high_risk_customers"
+
+
+class DashboardWidgetAnalysisResponse(BaseModel):
+    """Compact LLM result for exactly one clicked Dashboard widget."""
+
+    success: bool = True
+    message: str
+    section: DashboardAnalysisSection
+    title: str = Field(..., min_length=1, max_length=140)
+    status: Literal["stable", "attention", "critical", "opportunity", "info"]
+    summary: str = Field(..., min_length=1, max_length=520)
+    evidence: list[str] = Field(default_factory=list, max_length=3)
+    recommended_action: str = Field(..., min_length=1, max_length=340)
+    generated_at: datetime
