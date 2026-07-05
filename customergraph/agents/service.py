@@ -973,6 +973,11 @@ def _build_dashboard_widget_input(
         "upsell_opportunities_count": dashboard.upsell_opportunities_count,
         "upsell_potential_revenue": dashboard.upsell_potential_revenue,
         "revenue_at_risk": dashboard.revenue_at_risk,
+        "currency": {
+            "code": "INR",
+            "symbol": "₹",
+            "format": "Use ₹ with L (lakh) or Cr (crore); all monetary values are already INR.",
+        },
     }
     ranked = _rank_rows(rows)
     high_rows = [row for row in ranked if row[1].risk_level in {"high", "critical"}]
@@ -1010,18 +1015,21 @@ def _build_dashboard_widget_input(
             DashboardWidgetInsight(
                 status=status,
                 summary=(
-                    f"{dashboard.high_risk_customers} high-risk customer(s) are currently flagged. "
+                    f"{dashboard.high_risk_customers} high-risk customer(s) are currently flagged, with "
+                    f"{_compact_amount(dashboard.revenue_at_risk)} in estimated revenue at risk. "
                     f"The highest-priority accounts should receive a named owner review."
                     if high_rows
                     else "No high-risk customers are currently flagged in the available portfolio data."
                 ),
-                evidence=[
-                    *[
+                evidence=(
+                    [f"Revenue at risk across high and critical accounts: {_compact_amount(dashboard.revenue_at_risk)}."]
+                    + ([f"Open critical support tickets: {dashboard.open_critical_tickets}."] if dashboard.open_critical_tickets else [])
+                    + [
                         f"{context.customer_name}: {insight.risk_level.title()} risk"
                         + (f", health score {round(context.health_score)}" if context.health_score is not None else "")
                         for context, insight in high_rows[:3]
-                    ],
-                ] or ["No high-risk customer evidence is currently available."],
+                    ]
+                )[:3] or ["No high-risk customer evidence is currently available."],
                 recommended_action=(
                     "Assign or confirm an accountable owner for the highest-risk accounts and review their recovery plans."
                     if high_rows
@@ -1216,11 +1224,7 @@ def _emit_dashboard_progress(
     message: str,
     progress: int,
 ) -> None:
-    """Emit a safe, user-facing lifecycle update for the SSE response.
-
-    These messages describe request processing stages only. They never expose raw
-    LLM tokens, prompts, chain-of-thought, or Neo4j records.
-    """
+    """Emit a safe, user-facing lifecycle update for the SSE response."""
     if callback is None:
         return
     try:
@@ -1236,8 +1240,8 @@ def analyse_dashboard_widget_now(
 ) -> DashboardWidgetAnalysisResponse:
     """Run one selected Dashboard widget analysis through the single AI API.
 
-    ``progress_callback`` is optional and only used by ``stream=true``. The normal
-    JSON request keeps the same behaviour and response contract.
+    ``progress_callback`` is used only by the ``stream=true`` SSE flow. Normal JSON
+    requests keep the same response contract.
     """
     _emit_dashboard_progress(progress_callback, "starting", "Starting the focused dashboard analysis.", 6)
     _assert_agents_ready()
